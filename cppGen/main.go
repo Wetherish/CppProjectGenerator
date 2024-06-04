@@ -3,9 +3,12 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	cppGenerator "github.com/Wetherish/cppProjectGen/cppProjectGen"
 )
@@ -19,8 +22,12 @@ type model struct {
 }
 
 func initialModel() model {
+	// Define the default path
+	defaultPath := filepath.Join(os.Getenv("HOME"), "projects/")
+
 	pathInput := textinput.New()
 	pathInput.Placeholder = "Enter project path"
+	pathInput.SetValue(defaultPath)
 	pathInput.Focus()
 
 	projectNameInput := textinput.New()
@@ -38,6 +45,9 @@ func (m model) Init() tea.Cmd {
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
+	successStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("46")).Bold(true)
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -82,18 +92,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				projectName := m.projectNameInput.Value()
 
 				if path == "" || projectName == "" {
-					m.statusMessage = "Path and project name cannot be empty"
+					m.statusMessage = errorStyle.Render("Path and project name cannot be empty")
 				} else {
-					m.statusMessage = "ENTER CLICkED dziala"
+					m.statusMessage = successStyle.Render("Processing...")
 					err := os.MkdirAll(path, os.ModePerm)
 					if err != nil {
-						m.statusMessage = fmt.Sprintf("Failed to create project directory: %v", err)
+						m.statusMessage = errorStyle.Render(fmt.Sprintf("Failed to create project directory: %v", err))
 					} else {
 						err := cppGenerator.GenerateCppProject(path, projectName)
 						if err != nil {
-							m.statusMessage = fmt.Sprintf("Failed to generate C++ project: %v", err)
+							m.statusMessage = errorStyle.Render(fmt.Sprintf("Failed to generate C++ project: %v", err))
 						} else {
-							m.statusMessage = "C++ project generated successfully!"
+							m.statusMessage = successStyle.Render("C++ project generated successfully!")
+							exec.Command("code", path+"/"+projectName).Run()
+							m.quit()
+							return m, tea.Quit
 						}
 					}
 				}
@@ -107,32 +120,38 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	return m, cmd
 }
+func (m model) quit() model {
+	m.quitting = true
+	return m
+}
 
 func (m model) View() string {
 	if m.quitting {
 		return "Goodbye!\n"
 	}
 
-	var focusStyle = func(focused bool) string {
-		if focused {
-			return "focus"
-		}
-		return "blur"
-	}
+	titleStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("63")).Bold(true).Underline(true).MarginBottom(1)
+	inputStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Background(lipgloss.Color("235")).Padding(0, 1).Border(lipgloss.RoundedBorder())
+	focusStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("226")).Background(lipgloss.Color("235")).Padding(0, 1).Border(lipgloss.RoundedBorder()).Bold(true)
+	statusStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Background(lipgloss.Color("235")).Padding(0, 1).Bold(true)
+	hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Italic(true).MarginTop(1)
 
 	return fmt.Sprintf(
-		"Enter details to generate C++ project:\n\n%s\n\n%s\n\n%s\n\n%s",
-		focusStyle(m.focusIndex == 0)+": "+m.pathInput.View(),
-		focusStyle(m.focusIndex == 1)+": "+m.projectNameInput.View(),
-		"Submit (Press Enter when project name is focused)",
-		m.statusMessage,
+		"%s\n\n%s\n\n%s\n\n%s\n\n%s\n",
+		titleStyle.Render("Enter details to generate C++ project"),
+		focusStyle.Render(m.pathInput.View()),
+		inputStyle.Render(m.projectNameInput.View()),
+		statusStyle.Render(m.statusMessage),
+		hintStyle.Render("Use Tab to switch, Enter to submit, Ctrl+C or q to quit"),
 	)
 }
 
 func main() {
 	p := tea.NewProgram(initialModel())
-	if err := p.Start(); err != nil {
-		fmt.Printf("Error running program: %v\n", err)
+
+	if _, err := p.Run(); err != nil {
+		errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Background(lipgloss.Color("235")).Bold(true)
+		fmt.Printf("%s\n", errorStyle.Render(fmt.Sprintf("Error running program: %v", err)))
 		os.Exit(1)
 	}
 }
